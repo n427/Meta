@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Heart Beat</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a2a3a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Helvetica Neue', Helvetica, sans-serif;
+  }
+  canvas {
+    display: block;
+    border-radius: 28px;
+    box-shadow: 0 0 60px rgba(80, 180, 255, 0.3);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// 1:2 portrait ratio
+const W = 300, H = 600;
+canvas.width = W * 2;
+canvas.height = H * 2;
+canvas.style.width = W + 'px';
+canvas.style.height = H + 'px';
+ctx.scale(2, 2);
+
+// Heart dot grid (9x8)
+const HEART = [
+  [0,1,1,0,0,0,1,1,0],
+  [1,1,1,1,0,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1],
+  [0,1,1,1,1,1,1,1,0],
+  [0,0,1,1,1,1,1,0,0],
+  [0,0,0,1,1,1,0,0,0],
+  [0,0,0,0,1,0,0,0,0],
+];
+
+const COLS = 9, ROWS = 8;
+const DOT_R = 8;
+const GAP = 22;
+const HEART_W = (COLS - 1) * GAP;
+const HEART_H = (ROWS - 1) * GAP;
+const OX = (W - HEART_W) / 2;
+const OY = 80; // top offset for heart
+
+// Build list of heart dots
+const heartDots = [];
+for (let r = 0; r < ROWS; r++) {
+  for (let c = 0; c < COLS; c++) {
+    if (HEART[r][c]) {
+      heartDots.push({
+        tx: OX + c * GAP,
+        ty: OY + r * GAP,
+        row: r, col: c
+      });
+    }
+  }
+}
+
+// Determine outline dots (border of heart)
+function isOutline(r, c) {
+  if (!HEART[r][c]) return false;
+  const neighbors = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+  for (const [dr, dc] of neighbors) {
+    const nr = r + dr, nc = c + dc;
+    if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS || !HEART[nr][nc]) return true;
+  }
+  return false;
+}
+
+const outlineSet = new Set();
+heartDots.forEach(d => { if (isOutline(d.row, d.col)) outlineSet.add(d); });
+
+// Assign scatter start positions
+heartDots.forEach(d => {
+  const angle = Math.random() * Math.PI * 2;
+  const dist = 60 + Math.random() * 120;
+  d.sx = W/2 + Math.cos(angle) * dist;
+  d.sy = H * 0.3 + Math.sin(angle) * dist;
+  d.x = d.sx;
+  d.y = d.sy;
+  d.alpha = 0;
+  d.isOutline = outlineSet.has(d);
+  d.delay = Math.random() * 0.3; // stagger
+});
+
+// ECG line data
+const ECG_Y = H * 0.82;
+const ECG_H = 60;
+const ECG_SPEED = 1.5;
+let ecgPoints = [];
+let ecgTime = 0;
+let ecgOffset = 0;
+
+function ecgValue(t) {
+  const cycle = t % 1;
+  // P wave
+  if (cycle < 0.12) return Math.sin(cycle / 0.12 * Math.PI) * 8;
+  // PR segment
+  if (cycle < 0.22) return 0;
+  // Q
+  if (cycle < 0.26) return -Math.sin((cycle - 0.22) / 0.04 * Math.PI) * 6;
+  // R spike
+  if (cycle < 0.30) return Math.sin((cycle - 0.26) / 0.04 * Math.PI) * ECG_H * 0.85;
+  // S
+  if (cycle < 0.35) return -Math.sin((cycle - 0.30) / 0.05 * Math.PI) * 12;
+  // ST segment
+  if (cycle < 0.45) return 0;
+  // T wave
+  if (cycle < 0.65) return Math.sin((cycle - 0.45) / 0.20 * Math.PI) * 14;
+  return 0;
+}
+
+// Neon color palette — cycles through phases
+function heartColor(phase, alpha) {
+  // phase 0=outline dots (purple), 1=filled (pink→red)
+  const colors = [
+    `rgba(180, 80, 255, ${alpha})`,   // purple
+    `rgba(255, 60, 180, ${alpha})`,   // pink
+    `rgba(255, 50, 80, ${alpha})`,    // red
+  ];
+  return colors[Math.floor(phase) % colors.length];
+}
+
+// Easing
+function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+function easeInOut(t) { return t < 0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2; }
+
+let startTime = null;
+let colorPhase = 0; // cycles for color shift
+
+function draw(ts) {
+  if (!startTime) startTime = ts;
+  const elapsed = (ts - startTime) / 1000;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Background — frosted blue full
+  const bgGrd = ctx.createLinearGradient(0, 0, W, H);
+  bgGrd.addColorStop(0, 'rgba(30,77,122,0.72)');
+  bgGrd.addColorStop(0.5, 'rgba(24,63,106,0.72)');
+  bgGrd.addColorStop(1, 'rgba(18,51,90,0.72)');
+  ctx.fillStyle = bgGrd;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, W, H, 28);
+  ctx.fill();
+
+  // Frosted glass sheen — full height
+  const sheen = ctx.createLinearGradient(0, 0, W, H);
+  sheen.addColorStop(0, 'rgba(200,230,255,0.18)');
+  sheen.addColorStop(0.4, 'rgba(160,210,255,0.09)');
+  sheen.addColorStop(1, 'rgba(120,185,255,0.04)');
+  ctx.fillStyle = sheen;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, W, H, 28);
+  ctx.fill();
+
+  // ─── PHASES ───
+  // 0.0 - 0.8s : dots fade in scattered
+  // 0.8 - 2.0s : dots fly to outline positions
+  // 2.0 - 3.2s : remaining dots fill in
+  // 3.2s+      : heartbeat pulse loop
+
+  const PHASE_SCATTER_END  = 0.8;
+  const PHASE_OUTLINE_END  = 2.2;
+  const PHASE_FILL_END     = 3.4;
+  const LOOP_DURATION      = 1.1; // heartbeat period
+
+  let beatScale = 1;
+  let beatGlow = 0;
+  let showFull = false;
+
+  if (elapsed > PHASE_FILL_END) {
+    showFull = true;
+    const loopT = (elapsed - PHASE_FILL_END) % LOOP_DURATION;
+    // beat: quick expand, slow relax
+    if (loopT < 0.12) {
+      beatScale = 1 + easeOut(loopT / 0.12) * 0.12;
+      beatGlow = loopT / 0.12;
+    } else if (loopT < 0.28) {
+      beatScale = 1.12 - easeInOut((loopT - 0.12) / 0.16) * 0.12;
+      beatGlow = 1 - (loopT - 0.12) / 0.16;
+    } else {
+      beatScale = 1;
+      beatGlow = 0;
+    }
+    colorPhase = (elapsed - PHASE_FILL_END) * 0.3;
+  }
+
+  // Draw dots
+  heartDots.forEach(d => {
+    let x, y, alpha, r = DOT_R;
+
+    if (elapsed < PHASE_SCATTER_END) {
+      // Fade in at scatter pos
+      alpha = Math.min(1, (elapsed - d.delay * 0.5) / 0.5);
+      x = d.sx; y = d.sy;
+    } else if (elapsed < PHASE_OUTLINE_END) {
+      // Fly to outline (outline dots first)
+      const isActive = d.isOutline;
+      const phaseStart = PHASE_SCATTER_END;
+      const phaseLen = PHASE_OUTLINE_END - PHASE_SCATTER_END;
+      const t = Math.max(0, Math.min(1, (elapsed - phaseStart - d.delay * 0.3) / (phaseLen * 0.9)));
+      const te = easeOut(t);
+      if (isActive) {
+        x = d.sx + (d.tx - d.sx) * te;
+        y = d.sy + (d.ty - d.sy) * te;
+        alpha = 1;
+      } else {
+        // non-outline: stay scattered, fade slightly
+        alpha = 0.25;
+        x = d.sx; y = d.sy;
+      }
+    } else if (elapsed < PHASE_FILL_END) {
+      // Fill in remaining dots
+      const phaseStart = PHASE_OUTLINE_END;
+      const phaseLen = PHASE_FILL_END - PHASE_OUTLINE_END;
+      const t = Math.max(0, Math.min(1, (elapsed - phaseStart - d.delay * 0.2) / (phaseLen * 0.85)));
+      const te = easeOut(t);
+      x = d.sx + (d.tx - d.sx) * (d.isOutline ? 1 : te);
+      y = d.sy + (d.ty - d.sy) * (d.isOutline ? 1 : te);
+      alpha = d.isOutline ? 1 : te;
+    } else {
+      // Heartbeat
+      x = d.tx; y = d.ty;
+      alpha = 1;
+    }
+
+    if (alpha <= 0) return;
+
+    // Apply beat scale from heart center
+    if (showFull) {
+      const cx = W / 2, cy = OY + HEART_H / 2;
+      x = cx + (d.tx - cx) * beatScale;
+      y = cy + (d.ty - cy) * beatScale;
+      r = DOT_R * beatScale;
+    }
+
+    // Color: gradient from top (purple) to bottom (pink/red)
+    const rowFrac = d.row / (ROWS - 1);
+    const hue = 280 - rowFrac * 80 + colorPhase * 30;
+    const sat = 100;
+    const lit = 65;
+    const glowAlpha = alpha * (0.4 + beatGlow * 0.6);
+
+    // Outer glow
+    if (alpha > 0.3) {
+      const grd = ctx.createRadialGradient(x, y, 0, x, y, r * 3.5);
+      grd.addColorStop(0, `hsla(${hue},${sat}%,${lit}%,${glowAlpha * 0.35})`);
+      grd.addColorStop(1, `hsla(${hue},${sat}%,${lit}%,0)`);
+      ctx.beginPath();
+      ctx.arc(x, y, r * 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = grd;
+      ctx.fill();
+    }
+
+    // Dot
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${hue},${sat}%,${lit}%,${alpha})`;
+    ctx.fill();
+
+    // Inner highlight
+    ctx.beginPath();
+    ctx.arc(x - r*0.2, y - r*0.25, r * 0.35, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${hue},40%,90%,${alpha * 0.5})`;
+    ctx.fill();
+  });
+
+  // ─── ECG Line ───
+  if (elapsed > PHASE_OUTLINE_END) {
+    const ecgAlpha = Math.min(1, (elapsed - PHASE_OUTLINE_END) / 0.8);
+    ecgOffset += ECG_SPEED;
+    ecgTime += 0.018;
+
+    const TRAIL = W + 40;
+    const NUM_PTS = Math.ceil(TRAIL / ECG_SPEED) + 1;
+
+    // Build points array
+    while (ecgPoints.length < NUM_PTS) ecgPoints.push(0);
+    ecgPoints.push(ecgValue(ecgTime));
+    if (ecgPoints.length > NUM_PTS + 60) ecgPoints.shift();
+
+    // Draw ECG
+    const lineY = ECG_Y + ECG_H / 2;
+    const px = [];
+    const visible = Math.min(ecgPoints.length, NUM_PTS);
+    for (let i = 0; i < visible; i++) {
+      const xp = W - (visible - 1 - i) * ECG_SPEED;
+      const yp = lineY - ecgPoints[ecgPoints.length - visible + i];
+      px.push([xp, yp]);
+    }
+
+    // Glow pass
+    ctx.save();
+    ctx.globalAlpha = ecgAlpha;
+    ctx.shadowColor = `hsl(200, 100%, 70%)`;
+    ctx.shadowBlur = 14;
+    ctx.strokeStyle = `hsl(200, 90%, 72%)`;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    px.forEach(([xp, yp], i) => i === 0 ? ctx.moveTo(xp, yp) : ctx.lineTo(xp, yp));
+    ctx.stroke();
+    ctx.restore();
+
+    // ─── BPM display ───
+    const bpmAlpha = Math.min(1, (elapsed - PHASE_FILL_END - 0.2) / 0.6);
+    if (bpmAlpha > 0) {
+      ctx.save();
+      ctx.globalAlpha = bpmAlpha;
+
+      // BPM number — large for glasses readability
+      ctx.font = 'bold 110px "Helvetica Neue", Helvetica, sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = 'rgba(80, 200, 255, 0.9)';
+      ctx.shadowBlur = 40;
+      ctx.fillText('72', W/2, H * 0.62);
+
+      ctx.font = 'bold 22px "Helvetica Neue", Helvetica, sans-serif';
+      ctx.fillStyle = 'rgba(150,220,255,0.9)';
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = 'rgba(80,180,255,0.6)';
+      ctx.fillText('BPM', W/2, H * 0.62 + 28);
+
+      ctx.restore();
+    }
+  }
+
+  requestAnimationFrame(draw);
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Meta Glasses HUD</title>
+  <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
+  <script src="config.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #e8e8ea;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+      gap: 28px;
+      padding: 32px 0;
+    }
+
+    /* ── Scene toggle ── */
+    #scene-toggle {
+      display: flex;
+      background: rgba(0,0,0,0.07);
+      border-radius: 20px;
+      padding: 4px;
+      gap: 2px;
+    }
+    .scene-btn {
+      background: none;
+      border: none;
+      border-radius: 16px;
+      padding: 7px 22px;
+      font-size: 13px;
+      font-weight: 500;
+      color: rgba(0,0,0,0.45);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .scene-btn.active {
+      background: #fff;
+      color: #111;
+      font-weight: 600;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.12);
+    }
+
+    /* ── Glasses wrapper — 2:1 aspect ratio ── */
+    #glasses-wrap {
+      position: relative;
+      width: 640px;
+      height: 320px;
+    }
+
+    /* ── Background layer — fills the full wrap ── */
+    #glasses-bg {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      border-radius: 12px;
+    }
+
+    .scene-bg {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      opacity: 0;
+      transition: opacity 0.7s ease;
+      filter: brightness(1.15) saturate(1.1);
+    }
+    .scene-bg.active { opacity: 1; }
+
+    #bg-gym     { background-image: url('images/gym.jpg'); background-position: center 40%; }
+    #bg-running { background-image: url('images/run.jpg'); background-position: center 50%; }
+    #bg-golf    { background-image: url('images/golf.jpg'); background-position: center 50%; }
+
+
+    /* ── HUD overlay — positioned inside the lens area ── */
+    #hud-overlay {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      z-index: 15;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.35s ease;
+    }
+    #hud-overlay.visible { opacity: 1; }
+
+    #heart-anim-wrap {
+      width: 70px;
+      height: 140px;
+      overflow: hidden;
+      border-radius: 14px;
+      position: relative;
+    }
+    #heart-anim {
+      display: block;
+      width: 300px;
+      height: 600px;
+      border: none;
+      transform: scale(0.233);
+      transform-origin: top left;
+      pointer-events: none;
+    }
+
+
+    /* ── Listening indicator ── */
+    #listen-hud {
+      position: absolute;
+      bottom: 28px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 15;
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s;
+      background: rgba(0,0,0,0.45);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 18px;
+      padding: 12px 24px;
+      white-space: nowrap;
+    }
+    #listen-hud.visible { opacity: 1; }
+    .waveform { display: flex; align-items: center; gap: 3px; height: 18px; }
+    .wave-bar {
+      width: 3px;
+      background: linear-gradient(to top, #3b82f6, #a78bfa);
+      border-radius: 2px;
+      animation: wave 1.2s ease-in-out infinite;
+      box-shadow: 0 0 5px rgba(100,140,255,0.5);
+    }
+    .wave-bar:nth-child(1) { animation-delay: 0.0s; height: 6px; }
+    .wave-bar:nth-child(2) { animation-delay: 0.1s; height: 11px; }
+    .wave-bar:nth-child(3) { animation-delay: 0.2s; height: 16px; }
+    .wave-bar:nth-child(4) { animation-delay: 0.3s; height: 12px; }
+    .wave-bar:nth-child(5) { animation-delay: 0.4s; height: 18px; }
+    .wave-bar:nth-child(6) { animation-delay: 0.5s; height: 9px; }
+    .wave-bar:nth-child(7) { animation-delay: 0.6s; height: 14px; }
+    .wave-bar:nth-child(8) { animation-delay: 0.7s; height: 7px; }
+    @keyframes wave {
+      0%, 100% { transform: scaleY(0.35); opacity: 0.5; }
+      50%       { transform: scaleY(1);   opacity: 1; }
+    }
+    #listen-label {
+      font-size: 13px; color: rgba(160,210,255,0.95);
+      letter-spacing: 0.16em; text-transform: uppercase;
+      text-shadow: 0 0 10px rgba(100,160,255,0.6);
+    }
+
+    /* ── Toast ── */
+    #toast {
+      position: absolute;
+      top: 40px; left: 50%;
+      transform: translateX(-50%) translateY(-6px);
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px; padding: 5px 12px;
+      font-size: 10px; color: rgba(255,255,255,0.85);
+      white-space: nowrap; backdrop-filter: blur(20px);
+      opacity: 0; transition: all 0.3s ease; z-index: 50; pointer-events: none;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Controls row ── */
+    #controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .cmd-btn {
+      background: #fff;
+      border: 1px solid rgba(0,0,0,0.09);
+      border-radius: 14px;
+      padding: 11px 20px;
+      font-size: 13px; font-weight: 500; color: #1a1a1a;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 7px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+      transition: all 0.18s;
+    }
+    .cmd-btn:hover {
+      background: #f5f5f7;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.1);
+      transform: translateY(-1px);
+    }
+    .cmd-btn .emoji { font-size: 15px; }
+
+    /* Meta AI ring */
+    #meta-ring-btn {
+      position: relative;
+      width: 72px; height: 72px;
+      cursor: pointer; background: none; border: none; padding: 0;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .meta-ring-outer {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: conic-gradient(
+        #38d9f5 0deg, #5b8ef5 120deg, #a855f7 220deg, #c084fc 280deg, #38d9f5 360deg
+      );
+      animation: ring-spin 4s linear infinite;
+    }
+    .meta-ring-mask {
+      position: absolute; inset: 6px; border-radius: 50%; background: #e8e8ea;
+    }
+    .meta-ring-icon { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; }
+    @keyframes ring-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    #meta-ring-btn:hover .meta-ring-outer { filter: brightness(1.12); }
+    #meta-ring-btn.listening .meta-ring-outer { animation: ring-spin 0.65s linear infinite; filter: brightness(1.3); }
+
+    /* Settings */
+    #settings-toggle {
+      position: fixed; bottom: 20px; right: 20px; z-index: 101;
+      background: #fff; border: 1px solid rgba(0,0,0,0.1); border-radius: 50%;
+      width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: #aaa; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: all 0.2s;
+    }
+    #settings-toggle:hover { color: #333; }
+    #settings-panel {
+      position: fixed; bottom: 58px; right: 20px; z-index: 100;
+      background: rgba(255,255,255,0.98); border: 1px solid rgba(0,0,0,0.1);
+      border-radius: 18px; padding: 18px; width: 260px;
+      box-shadow: 0 16px 50px rgba(0,0,0,0.14); display: none;
+    }
+    #settings-panel.open { display: block; }
+    .settings-title { font-size: 12px; font-weight: 600; color: #111; margin-bottom: 12px; }
+    .settings-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+    .settings-field label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.12em; }
+    .settings-field input {
+      background: #f5f5f7; border: 1px solid rgba(0,0,0,0.1); border-radius: 9px;
+      padding: 7px 10px; font-size: 11px; color: #111; font-family: 'SF Mono', monospace;
+      outline: none; width: 100%; transition: border-color 0.2s;
+    }
+    .settings-field input:focus { border-color: #5b9cf6; }
+    .save-btn {
+      width: 100%; background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      border: none; border-radius: 9px; padding: 8px; color: white;
+      font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.2s;
+    }
+    .save-btn:hover { opacity: 0.85; }
+  </style>
+</head>
+<body>
+
+<!-- Scene toggle -->
+<div id="scene-toggle">
+  <button class="scene-btn active" onclick="setScene('gym', this)">🏋️ Gym</button>
+  <button class="scene-btn" onclick="setScene('running', this)">🏃 Running</button>
+  <button class="scene-btn" onclick="setScene('golf', this)">⛳ Golf</button>
+</div>
+
+<!-- Glasses wrapper -->
+<div id="glasses-wrap">
+
+  <!-- Background layer behind the glasses -->
+  <div id="glasses-bg">
+    <div id="bg-gym"     class="scene-bg active"></div>
+    <div id="bg-running" class="scene-bg"></div>
+    <div id="bg-golf"    class="scene-bg"></div>
+  </div>
+
+  <!-- Listening indicator -->
+  <div id="listen-hud">
+    <div class="waveform">
+      <div class="wave-bar"></div><div class="wave-bar"></div>
+      <div class="wave-bar"></div><div class="wave-bar"></div>
+      <div class="wave-bar"></div><div class="wave-bar"></div>
+      <div class="wave-bar"></div><div class="wave-bar"></div>
+    </div>
+    <div id="listen-label">Listening...</div>
+  </div>
+
+  <!-- HUD data bottom-right -->
+  <div id="hud-overlay">
+    <div id="heart-anim-wrap">
+      <iframe id="heart-anim" src="animations/Heart Beat (1).html" scrolling="no" frameborder="0" allowtransparency="true"></iframe>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+
+</div>
+
+<!-- Controls outside glasses -->
+<div id="controls">
+  <button class="cmd-btn" onclick="triggerCommand('heart rate')"><span class="emoji">❤️</span> Heart Rate</button>
+  <button class="cmd-btn" onclick="triggerCommand('steps')"><span class="emoji">👟</span> Steps</button>
+
+  <button id="meta-ring-btn" onclick="startListening()" title="Hey Meta...">
+    <div class="meta-ring-outer"></div>
+    <div class="meta-ring-mask"></div>
+    <div class="meta-ring-icon">
+      <svg width="22" height="13" viewBox="0 0 64 36" fill="none">
+        <path d="M8 18C8 10 12 4 18 4C24 4 28 10 32 18C36 10 40 4 46 4C52 4 56 10 56 18C56 26 52 32 46 32C40 32 36 26 32 18C28 26 24 32 18 32C12 32 8 26 8 18Z" fill="#333"/>
+      </svg>
+    </div>
+  </button>
+
+  <button class="cmd-btn" onclick="triggerCommand('timer')"><span class="emoji">⏱️</span> Timer</button>
+  <button class="cmd-btn" onclick="triggerCommand('calories')"><span class="emoji">🔥</span> Calories</button>
+</div>
+
+<!-- Settings -->
+<div id="settings-panel">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <div class="settings-title" style="margin:0">ElevenLabs Settings</div>
+    <button onclick="toggleSettings()" style="background:none;border:none;cursor:pointer;color:#aaa;font-size:15px;">✕</button>
+  </div>
+  <div class="settings-field">
+    <label>API Key</label>
+    <input type="password" id="api-key-input" placeholder="sk-xxxxxxxxxxxxxxxx"/>
+  </div>
+  <div class="settings-field">
+    <label>Voice ID</label>
+    <input type="text" id="voice-id-input" placeholder="21m00Tcm4TlvDq8ikWAM"/>
+  </div>
+  <button class="save-btn" onclick="saveSettings()">Save to Browser</button>
+</div>
+<button id="settings-toggle" onclick="toggleSettings()">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+  </svg>
+</button>
+
+<script>
+function getApiKey() {
+  return localStorage.getItem('el_api_key') || (typeof ELEVENLABS_API_KEY !== 'undefined' ? ELEVENLABS_API_KEY : '');
+}
+function getVoiceId() {
+  return localStorage.getItem('el_voice_id') || (typeof ELEVENLABS_VOICE_ID !== 'undefined' ? ELEVENLABS_VOICE_ID : '21m00Tcm4TlvDq8ikWAM');
+}
+
+function toggleSettings() {
+  const panel = document.getElementById('settings-panel');
+  const tog = document.getElementById('settings-toggle');
+  const isOpen = panel.classList.toggle('open');
+  tog.style.display = isOpen ? 'none' : '';
+  if (isOpen) {
+    document.getElementById('api-key-input').value = localStorage.getItem('el_api_key') || '';
+    document.getElementById('voice-id-input').value = getVoiceId();
+  }
+}
+function saveSettings() {
+  const key = document.getElementById('api-key-input').value.trim();
+  const voice = document.getElementById('voice-id-input').value.trim();
+  if (key) localStorage.setItem('el_api_key', key);
+  if (voice) localStorage.setItem('el_voice_id', voice);
+  document.getElementById('settings-panel').classList.remove('open');
+  document.getElementById('settings-toggle').style.display = '';
+  showToast('Settings saved');
+}
+
+function setScene(name, btn) {
+  document.querySelectorAll('.scene-bg').forEach(el => el.classList.remove('active'));
+  document.getElementById('bg-' + name).classList.add('active');
+  document.querySelectorAll('.scene-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function getCurrentTime() {
+  return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+const COMMANDS = {
+  'heart rate': { animation: 'animations/Heart Beat (2).html', hideAfter: 8000,  speech: "Your heart rate is 72 beats per minute." },
+  'steps':      { animation: 'animations/Steps.html',          hideAfter: 10000, speech: "You've taken 8,432 steps today." },
+  'timer':      { animation: 'animations/Time.html',           hideAfter: 34000, speech: "Timer started." },
+  '30 second timer': 'timer',
+  'calories':   { animation: 'animations/Calories.html',       hideAfter: 10000, speech: "You've burned 487 calories today." },
+};
+
+async function speak(text) {
+  const apiKey = getApiKey();
+  if (!apiKey || apiKey === 'YOUR_KEY_HERE') { showToast('Add ElevenLabs key in settings'); return; }
+  try {
+    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${getVoiceId()}`, {
+      method: 'POST',
+      headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+      body: JSON.stringify({ text, model_id: 'eleven_monolingual_v1', voice_settings: { stability: 0.5, similarity_boost: 0.75 } })
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); showToast('TTS error: '+(e?.detail?.message||res.status)); return; }
+    const url = URL.createObjectURL(await res.blob());
+    const audio = new Audio(url); audio.play();
+    audio.onended = () => URL.revokeObjectURL(url);
+  } catch(e) { showToast('Network error'); console.error(e); }
+}
+
+let returnTimer = null;
+function triggerCommand(rawCommand) {
+  const key = rawCommand.toLowerCase().trim();
+  let cmd = COMMANDS[key];
+  if (typeof cmd === 'string') cmd = COMMANDS[cmd];
+  if (!cmd) { showToast('Command not recognised'); return; }
+
+  // Load the correct animation and restart
+  const iframe = document.getElementById('heart-anim');
+  if (cmd.animation) {
+    iframe.src = cmd.animation;
+    document.getElementById('hud-overlay').classList.add('visible');
+  } else {
+    document.getElementById('hud-overlay').classList.remove('visible');
+  }
+  setListenVisible(false);
+  speak(cmd.getSpeech ? cmd.getSpeech() : cmd.speech);
+
+  clearTimeout(returnTimer);
+  returnTimer = setTimeout(() => document.getElementById('hud-overlay').classList.remove('visible'), cmd.hideAfter || 8000);
+}
+
+function setListenVisible(on) {
+  document.getElementById('listen-hud').classList.toggle('visible', on);
+  document.getElementById('meta-ring-btn').classList.toggle('listening', on);
+}
+
+let recognition = null, recognitionActive = false, wakePending = false;
+function startListening() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { showToast('Speech recognition not supported'); return; }
+  if (recognitionActive) { stopListening(); return; }
+  recognition = new SR();
+  recognition.continuous = true; recognition.interimResults = true; recognition.lang = 'en-US';
+  setListenVisible(true); recognitionActive = true; wakePending = false;
+  setListenLabel('Say "Hey Meta..."');
+  recognition.onresult = (event) => {
+    let t = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) t += event.results[i][0].transcript;
+    t = t.toLowerCase().trim();
+    setListenLabel(`"${t}"`);
+    const wi = t.search(/hey\s*meta/);
+    if (wi !== -1 && !wakePending) {
+      wakePending = true; setListenLabel('Hey Meta — what can I help with?');
+      const after = t.slice(wi + 'hey meta'.length).trim();
+      if (after) processCommand(after); return;
+    }
+    if (wakePending && event.results[event.results.length-1].isFinal)
+      processCommand(t.replace(/hey\s*meta/i,'').trim());
+  };
+  recognition.onerror = (e) => { if (e.error==='not-allowed') showToast('Mic permission denied'); stopListening(); };
+  recognition.onend = () => { recognitionActive = false; setListenVisible(false); };
+  recognition.start();
+}
+function stopListening() {
+  if (recognition) recognition.stop();
+  recognitionActive = false; setListenVisible(false);
+}
+function processCommand(text) {
+  const t = text.toLowerCase();
+  let m = null;
+  if (t.includes('heart')) m = 'heart rate';
+  else if (t.includes('step')) m = 'steps';
+  else if (t.includes('timer') || t.includes('30') || t.includes('time')) m = 'timer';
+  else if (t.includes('calori')) m = 'calories';
+  if (m) { if (recognition) recognition.stop(); recognitionActive = false; triggerCommand(m); }
+  else if (text.length > 2) { showToast('Command not recognized'); wakePending = false; }
+}
+function setListenLabel(t) { document.getElementById('listen-label').textContent = t; }
+
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+</script>
+</body>
+</html>

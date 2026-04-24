@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Steps</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a2a3a; display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: 'Helvetica Neue', Helvetica, sans-serif; }
+  canvas { display: block; border-radius: 28px; box-shadow: 0 0 60px rgba(80,180,255,0.2); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 300, H = 600;
+canvas.width = W*2; canvas.height = H*2;
+canvas.style.width = W+'px'; canvas.style.height = H+'px';
+ctx.scale(2,2);
+
+// Staircase — literal "steps"
+const SHAPE = [
+  [0,0,0,0,0,0,1,1,0],
+  [0,0,0,0,0,0,1,1,0],
+  [0,0,0,0,1,1,1,1,0],
+  [0,0,0,0,1,1,1,1,0],
+  [0,0,1,1,1,1,1,1,0],
+  [0,0,1,1,1,1,1,1,0],
+  [1,1,1,1,1,1,1,1,0],
+  [1,1,1,1,1,1,1,1,0],
+];
+const COLS=9,ROWS=8,DOT_R=9,GAP=22;
+const SW=(COLS-1)*GAP, SH=(ROWS-1)*GAP;
+const OX=(W-SW)/2, OY=75;
+const dots=[];
+for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)if(SHAPE[r][c])dots.push({tx:OX+c*GAP,ty:OY+r*GAP,row:r,col:c});
+
+function isOutline(r,c){if(!SHAPE[r][c])return false;for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]){const nr=r+dr,nc=c+dc;if(nr<0||nr>=ROWS||nc<0||nc>=COLS||!SHAPE[nr][nc])return true;}return false;}
+const outlineSet=new Set();
+dots.forEach(d=>{if(isOutline(d.row,d.col))outlineSet.add(d);});
+const seed=[];for(let i=0;i<dots.length*3;i++)seed.push(Math.abs(Math.sin(i*13.7+5.2)%1));
+dots.forEach((d,i)=>{const a=seed[i]*Math.PI*2,dist=60+seed[i+1]*110;d.sx=W/2+Math.cos(a)*dist;d.sy=H*0.28+Math.sin(a)*dist;d.isOutline=outlineSet.has(d);d.delay=seed[i+2]*0.3;});
+
+function easeOut(t){return 1-Math.pow(1-t,3);}
+function easeInOut(t){return t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}
+
+// Step bar animation
+const MAX_STEPS = 8432;
+let stepBarAnim = 0; // 0–1
+
+// Walking bounce
+function bounceVal(t, phase) {
+  const lt = (t + phase) % 1.0;
+  return Math.abs(Math.sin(lt * Math.PI)) * 6;
+}
+
+let startTime = null;
+function draw(ts) {
+  if(!startTime) startTime = ts;
+  const elapsed = (ts - startTime) / 1000;
+
+  ctx.clearRect(0,0,W,H);
+
+  const PS=0.8,PO=2.2,PF=3.4,LD=0.9;
+  let bs=1,bg=0,sf=false,cp=0;
+  if(elapsed>PF){sf=true;const lt=(elapsed-PF)%LD;if(lt<0.15){bs=1+easeOut(lt/0.15)*0.08;bg=lt/0.15;}else if(lt<0.35){bs=1.08-easeInOut((lt-0.15)/0.2)*0.08;bg=1-(lt-0.15)/0.2;}else{bs=1;bg=0;}cp=(elapsed-PF)*0.25;}
+
+  // Background
+  const bgGrd=ctx.createLinearGradient(0,0,W,H);
+  bgGrd.addColorStop(0,'rgba(30,77,122,0.72)');bgGrd.addColorStop(0.5,'rgba(24,63,106,0.72)');bgGrd.addColorStop(1,'rgba(18,51,90,0.72)');
+  ctx.fillStyle=bgGrd;ctx.beginPath();ctx.roundRect(0,0,W,H,28);ctx.fill();
+  const sheen=ctx.createLinearGradient(0,0,W,H);
+  sheen.addColorStop(0,'rgba(200,230,255,0.18)');sheen.addColorStop(0.4,'rgba(160,210,255,0.09)');sheen.addColorStop(1,'rgba(120,185,255,0.04)');
+  ctx.fillStyle=sheen;ctx.beginPath();ctx.roundRect(0,0,W,H,28);ctx.fill();
+
+  const cx0=W/2, cy0=OY+SH/2;
+  dots.forEach(d=>{
+    let x,y,alpha,r=DOT_R;
+    if(elapsed<PS){alpha=Math.min(1,(elapsed-d.delay*0.5)/0.5);x=d.sx;y=d.sy;}
+    else if(elapsed<PO){const t=Math.max(0,Math.min(1,(elapsed-PS-d.delay*0.3)/((PO-PS)*0.9)));const te=easeOut(t);if(d.isOutline){x=d.sx+(d.tx-d.sx)*te;y=d.sy+(d.ty-d.sy)*te;alpha=1;}else{alpha=0.25;x=d.sx;y=d.sy;}}
+    else if(elapsed<PF){const t=Math.max(0,Math.min(1,(elapsed-PO-d.delay*0.2)/((PF-PO)*0.85)));const te=easeOut(t);x=d.sx+(d.tx-d.sx)*(d.isOutline?1:te);y=d.sy+(d.ty-d.sy)*(d.isOutline?1:te);alpha=d.isOutline?1:te;}
+    else{x=d.tx;y=d.ty;alpha=1;}
+    if(alpha<=0.01)return;
+    if(sf){
+      const bounce = bounceVal((elapsed-PF)/LD, d.col/COLS * 0.5);
+      x=cx0+(d.tx-cx0)*bs;y=cy0+(d.ty-cy0)*bs - bounce*(bg*0.5+0.5);r=DOT_R*bs;
+    }
+    // Cyan-purple gradient per row
+    const rowFrac=d.row/(ROWS-1);
+    const hue=Math.round(220-rowFrac*60+cp*20);
+    const glowA=alpha*(0.3+bg*0.5);
+    if(alpha>0.3){const grd=ctx.createRadialGradient(x,y,0,x,y,r*3.2);grd.addColorStop(0,`hsla(${hue},100%,70%,${glowA*0.3})`);grd.addColorStop(1,`hsla(${hue},100%,70%,0)`);ctx.beginPath();ctx.arc(x,y,r*3.2,0,Math.PI*2);ctx.fillStyle=grd;ctx.fill();}
+    ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=`hsla(${hue},100%,68%,${alpha})`;ctx.fill();
+    ctx.beginPath();ctx.arc(x-r*0.2,y-r*0.25,r*0.35,0,Math.PI*2);ctx.fillStyle=`rgba(255,255,255,${alpha*0.45})`;ctx.fill();
+  });
+
+  // Step counter section
+  if(elapsed>PO){
+    const secAlpha=Math.min(1,(elapsed-PO)/0.8);
+
+    // Animated step count
+    if(elapsed>PF) stepBarAnim=Math.min(1,(elapsed-PF)/3.5);
+    const displaySteps = elapsed>PF ? Math.round(stepBarAnim * MAX_STEPS) : 0;
+
+    ctx.save();ctx.globalAlpha=secAlpha;
+
+    // Step number
+    ctx.font='bold 96px "Helvetica Neue",Helvetica,sans-serif';
+    ctx.fillStyle='#ffffff';ctx.textAlign='center';
+    ctx.shadowColor='rgba(100,180,255,0.9)';ctx.shadowBlur=35;
+    ctx.fillText(displaySteps.toLocaleString(),W/2,H*0.60);
+
+    ctx.font='bold 26px "Helvetica Neue",Helvetica,sans-serif';
+    ctx.fillStyle='rgba(150,220,255,0.85)';ctx.shadowBlur=10;
+    ctx.fillText('STEPS',W/2,H*0.60+30);
+
+    // Gradient progress bar
+    const barY=H*0.72, barH=8, barW=W-60;
+    ctx.shadowBlur=0;
+    ctx.fillStyle='rgba(255,255,255,0.1)';
+    ctx.beginPath();ctx.roundRect(30,barY,barW,barH,4);ctx.fill();
+    if(elapsed>PF && stepBarAnim>0){
+      const grd=ctx.createLinearGradient(30,0,30+barW,0);
+      grd.addColorStop(0,'hsl(200,100%,65%)');
+      grd.addColorStop(1,'hsl(270,100%,70%)');
+      ctx.fillStyle=grd;
+      ctx.beginPath();ctx.roundRect(30,barY,barW*stepBarAnim,barH,4);ctx.fill();
+      // Glow tip
+      const tipX=30+barW*stepBarAnim;
+      const tgrd=ctx.createRadialGradient(tipX,barY+barH/2,0,tipX,barY+barH/2,18);
+      tgrd.addColorStop(0,'rgba(150,120,255,0.7)');tgrd.addColorStop(1,'rgba(150,120,255,0)');
+      ctx.fillStyle=tgrd;ctx.beginPath();ctx.arc(tipX,barY+barH/2,18,0,Math.PI*2);ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
