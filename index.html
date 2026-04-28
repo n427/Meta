@@ -436,11 +436,13 @@ function triggerCommand(rawCommand) {
   if (!cmd) { showToast('Command not recognised'); return; }
 
   const iframe = document.getElementById('heart-anim');
+  const overlay = document.getElementById('hud-overlay');
   if (cmd.animation) {
+    overlay.classList.remove('visible');
+    iframe.onload = () => { overlay.classList.add('visible'); iframe.onload = null; };
     iframe.src = cmd.animation;
-    document.getElementById('hud-overlay').classList.add('visible');
   } else {
-    document.getElementById('hud-overlay').classList.remove('visible');
+    overlay.classList.remove('visible');
   }
   setListenVisible(false);
   speak(cmd.getSpeech ? cmd.getSpeech() : cmd.speech);
